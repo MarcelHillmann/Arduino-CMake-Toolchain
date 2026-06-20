@@ -3,10 +3,10 @@ cmake_minimum_required(VERSION 3.0.0)
 project(auto_link CXX)
 
 # local_lib is present in ../02_arduino_lib and not here. If this
-# CMakeLists.txt is used as the main project make file, then the
+# CMakeLists.txt.save is used as the main project make file, then the
 # following statement will help to find the local_lib.
 list(APPEND ARDUINO_LIBRARIES_SEARCH_PATHS_EXTRA
-	"${CMAKE_CURRENT_SOURCE_DIR}/../02_arduino_lib")
+        "${CMAKE_CURRENT_SOURCE_DIR}/../02_arduino_lib")
 
 #=================================================================
 # auto_link_app
@@ -33,8 +33,8 @@ add_library(auto_link_lib auto_link_lib.h auto_link_lib.cpp)
 # with INTERFACE linking, so that dependents can include auto_link_lib.h
 # without any error.
 target_link_arduino_libraries(auto_link_lib
-	AUTO_INTERFACE auto_link_lib.h
-	AUTO_PRIVATE
+        AUTO_INTERFACE auto_link_lib.h
+        AUTO_PRIVATE
 )
 
 #=================================================================

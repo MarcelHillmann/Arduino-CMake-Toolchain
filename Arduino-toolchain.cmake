@@ -27,19 +27,19 @@
 # binary directory path etc. are not passed to try_compile.
 
 if (CMAKE_VERSION VERSION_LESS 3.7.0)
-	message(FATAL_ERROR "CMake version below 3.7.0 unsupported!!!")
-endif()
+    message(FATAL_ERROR "CMake version below 3.7.0 unsupported!!!")
+endif ()
 
 # Save the policy state. We will restore it at the end.
 cmake_policy(PUSH)
 
 # Set policy to above 3.0.0
-cmake_policy(VERSION 3.0.0)
+cmake_policy(VERSION 3.10)
 
 # Interpret if() arguments without quotes as variables/keywords
 if (NOT CMAKE_VERSION VERSION_LESS 3.1)
-	cmake_policy(SET CMP0054 NEW)
-endif()
+    cmake_policy(SET CMP0054 NEW)
+endif ()
 
 #*****************************************************************************
 # Set system name and basic information
@@ -49,41 +49,82 @@ set(CMAKE_SYSTEM_NAME "Arduino")
 set(ARDUINO_TOOLCHAIN_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(_ARDUINO_TOOLCHAIN_PARENT "${CMAKE_PARENT_LIST_FILE}")
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_LIST_DIR}")
-set (ARDUINO_TOOLCHAIN_VERSION "1.0")
+set(ARDUINO_TOOLCHAIN_VERSION "1.1")
 
 # Include modules
+include(Arduino/System/PackagePathIndex)
+include(Arduino/System/PackageIndex)
 include(Arduino/System/BoardsIndex)
 include(Arduino/System/BoardToolchain)
 include(Arduino/System/BoardBuildTargets)
+include(Arduino/PackageManager/BoardsManager)
 
 #*****************************************************************************
-# For improved speed, indexing of boards is done only once during a 
-# cmake invocation. However, this toolchain file is included multiple
-# times in multiple contexts (system determination context, separate
-# context for each try compile etc.). After indexing, the selected
-# board's toolchain info is configured to a generated file that gets
-# included in every other inclusion of this toolchain.
-if (NOT _BOARD_INDEXING_COMPLETED)
-	get_property(_in_try_compile GLOBAL PROPERTY IN_TRY_COMPILE)
-	# IN_TRY_COMPILE check seems to be not enough. Check for parent
-	# script works, but may be undocumented!
-	get_filename_component(parent_script "${_ARDUINO_TOOLCHAIN_PARENT}"
-		NAME_WE)
-	if (parent_script STREQUAL "CMakeSystem")
-		check_board_options_changed(_b_changed)
-		if (NOT _b_changed)
-			set(_BOARD_INDEXING_COMPLETED TRUE)
-		endif()
-	endif()
-endif()
+# For improved speed, indexing and setup of boards is done only once during a
+# cmake invocation. However, this toolchain file is included multiple times
+# in multiple contexts (system determination context, separate context for
+# each try compile etc.). After indexing, the selected board's toolchain
+# info is configured to a generated file that gets included in every other
+# inclusion of this toolchain.
+if (NOT _BOARD_SETUP_COMPLETED)
+    get_property(_in_try_compile GLOBAL PROPERTY IN_TRY_COMPILE)
+    # IN_TRY_COMPILE check seems to be not enough. Checking for parent
+    # script works, but might be using undocumented feature?
+    get_filename_component(parent_script "${_ARDUINO_TOOLCHAIN_PARENT}"
+            NAME_WE)
+    if (parent_script STREQUAL "CMakeSystem")
+        check_board_options_changed(_b_changed)
+        if (NOT _b_changed)
+            set(_BOARD_SETUP_COMPLETED TRUE)
+        endif ()
+    elseif (ARDUINO_SYSTEM_FILE)
+        # If passing with pre-generated Arduino system code
+        set(_BOARD_SETUP_COMPLETED TRUE)
+        set(CMAKE_SYSTEM_CUSTOM_CODE
+                "include(\"${ARDUINO_SYSTEM_FILE}\")"
+        )
+    endif ()
+endif ()
 
-if (NOT _BOARD_INDEXING_COMPLETED)
-	SetupBoardToolchain()
-	set(CMAKE_SYSTEM_CUSTOM_CODE
-		"include(\"${CMAKE_BINARY_DIR}/ArduinoSystem.cmake\")"
-	)
-	set (_BOARD_INDEXING_COMPLETED TRUE)
-endif()
+# Wrap it in a function so that the scope of variables are within
+# the function
+function(BoardSetupWorkflow)
+
+    # Call the common workflow for setting up the platform, which includes
+    # installing the necessary platform (if package management is enabled),
+    # and indexing the boards based on the platform. The platform to be
+    # setup is identified using the board options which we already loaded.
+    PlatformSetupWorkflow()
+
+    # Select one of the boards as selected in BoardOptions.cmake or in
+    # cmake-gui or other mechanisms. If none selected, this call will
+    # generate options in CMake Cache and BoardOptions.cmake to allow
+    # later selection of the board.
+    SelectArduinoBoard(ard_boards)
+    set(ARDUINO_BOARD_IDENTIFIER "${ARDUINO_BOARD_IDENTIFIER}"
+            PARENT_SCOPE)
+    list(LENGTH ARDUINO_BOARD_IDENTIFIER _num_board_ids)
+
+    # if a board is selected, setup a toolchain for the board
+    # Else, Arduino-Determine.cmake will print an error message later
+    # Arduino-Determine.cmake.
+    if (_num_board_ids EQUAL 1)
+        SetupBoardToolchain(ard_boards "${ARDUINO_BOARD_IDENTIFIER}"
+                "${CMAKE_BINARY_DIR}")
+    endif ()
+
+endfunction()
+
+if (NOT _BOARD_SETUP_COMPLETED)
+
+    BoardSetupWorkflow()
+
+    set(CMAKE_SYSTEM_CUSTOM_CODE
+            "include(\"${CMAKE_BINARY_DIR}/ArduinoSystem.cmake\")"
+    )
+    set(_BOARD_SETUP_COMPLETED TRUE)
+
+endif ()
 
 # Search for programs in the build host directories
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM BOTH)
@@ -93,6 +134,11 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
 # Workaround for CMAKE_TRY_COMPILE_TARGET_TYPE. For later ESP32 cores this file is missing
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/build_opt.h" "")
+
+if (NOT EXISTS "${CMAKE_BINARY_DIR}/core/build.opt")
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/core)
+    file(TOUCH ${CMAKE_BINARY_DIR}/core/build.opt)
+endif ()
 
 # Do not try to link during the configure time, due to the dependency on the
 # core, which we do not have a target yet.

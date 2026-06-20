@@ -2,22 +2,6 @@
 
 **Arduino CMake toolchain** is a CMake toolchain for cross-compiling CMake based projects for all Arduino compatible boards (AVR, ESP32 etc.). Of course, this means all the benefits of CMake for Arduino compilation, like using your favourite IDE, configuration checks (e.g. `try_compile`, `CheckTypeSize`), etc. This also brings the Arduino compilation to professional users, who are limited by the Arduino IDE compilation.
 
-## Note by technyon
-
-This is a fork of 
-
-https://github.com/a9183756-gh/Arduino-CMake-Toolchain
-
-The original projects seems to be not maintained anymore. As far as I have tested, it
-only works with the Arduino ESP32 core up to version 1.6. I've merged a few open
-pull requests from the original project to get compatibility with Core 2.0.3
-(latest at the time of writing).<br>
-The included fixes are:
-
-- https://github.com/a9183756-gh/Arduino-CMake-Toolchain/pull/53
-- https://github.com/a9183756-gh/Arduino-CMake-Toolchain/pull/57
-- Generate build_opts.h file in cmake binary dear to pass cpp compiler check 
-
 ## Project Roots
 
 [Arduino-CMake-NG](https://github.com/arduino-cmake/Arduino-CMake-NG) is a great project, which could have prevented me from writing yet another Arduino CMake toolchain. However, as claimed by the project, Arduino-CMake-NG could not be easily utilized/modified for other Arduino compatible boards other than AVR, like ESP32, due to the fact that it does not fully work the way Arduino IDE works and has lot of AVR specific stuff. An other important limitation is related to portability. Arduino-CMake-NG provides Arduino specific CMake interface, requiring CMake scripts to be written/modified specifically for Arduino, rather than just passing `-D CMAKE_TOOLCHAIN_FILE=/path/to/Arduino-toolchain.cmake` to a generic CMake project.
@@ -40,10 +24,14 @@ My initial expectation was to contribute to Arduino-CMake-NG to fix the above li
     - [x] Arduino *native* libraries (e.g. Ethernet, Wire)
     - [x] User installed 3rd Party Arduino libraries (e.g. IRremote)
     - [x] Project specific Arduino libraries (those present in `<CMAKE_SOURCE_DIR>/libraries`)
-- [x] Support for automatic dependency resolution (Arduino IDE like, but unprofessional)
-- [ ] Serial port monitoring
+    - [x] Support for automatic dependency resolution (Arduino IDE like, but unprofessional)
+- [x] Support for debugging and utilities
+    - [x] Debugging the target (Very limited support on some platforms only)
+    - [ ] Serial port monitoring
+- [x] Local package management without requiring installation of Arduino IDE
+    - [x] Platform and tools management
+    - [ ] Library management
 - [ ] Support for `.ino` and '.pde' sketch files (Arduino IDE like, but unprofessional)
-- [ ] Board and Libraries Management without requiring installation of Arduino IDE
 
 ## Usage
 
@@ -95,7 +83,7 @@ target_link_arduino_libraries(my_app AUTO_PUBLIC)
 ```
 
 Note:
-1. *Wire* and *core* in the above examples are not CMake targets. They are just Arduino library names (case-sensitive).
+1. *Wire* and *core* in the above examples are not CMake targets. They are just Arduino library or include names (case-sensitive). Library and include names are the same in most libraries, but they may differ.
 1. It is required only to specify the direct dependencies. Any deeper dependencies are automatically identified and linked. For example, if *SD.h* is included, it is sufficient to link with *SD*, even if *SD* depends on other Arduino libraries, like *SPI*.
 
 These examples illustrates simple usage, but powerful enough for most use cases. However more advanced control and customization of Arduino libraries should be possible. Please refer to the [Examples](https://github.com/a9183756-gh/Arduino-CMake-Toolchain/tree/master/Examples) folder, as well as the API documentation of `target_link_arduino_libraries` (Currently documented as comments in [BoardBuildTargets.cmake](https://github.com/a9183756-gh/Arduino-CMake-Toolchain/blob/master/Arduino/System/BoardBuildTargets.cmake)).
@@ -112,65 +100,47 @@ target_enable_arduino_upload(my_executable) # This adds a target upload-my_execu
 
 Upload the executable (from the above example) to the board on COM3 serial port as follows
 
+**Note:** *There are changes in the commands since release 1.1. Now there is only a common upload target available for all applications, and application specific targets need to be explicitly enabled.*
+
 ```sh
-<make-command> upload-my_executable SERIAL_PORT=COM3
+<make-command> upload TARGET=my_executable SERIAL_PORT=COM3
 ```
 
 Upload the executable to the board through remote provisioning as follows
 
 ```sh
-<make-command> upload-my_executable NETWORK_PORT=<IP>[:<port>]
+<make-command> upload TARGET=my_executable NETWORK_IP=<IP>
 ```
 
 For using a programmer, select the programmer in board options or the CMake GUI, and then execute the following
 
 ```sh
-<make-command> program-my_executable CONFIRM=1
+<make-command> program TARGET=my_executable
 ```
 
 Using the programmer, bootloader can be flashed as below
 
 ```sh
-<make-command> burn-bootloader CONFIRM=1
+<make-command> burn-bootloader
+```
+
+If debugging is supported on the platform, you can launch the debugger as below
+
+```sh
+<make-command> debug TARGET=my_executable
 ```
 
 ## Serial port monitoring
 
 Currently there is no support available for this within this toolchain. However any external serial port monitor can be used (e.g. Putty). External serial monitor may need to be closed before upload and reopened after upload, because both use the same serial port.
 
-## Known issues
+## Package Management
 
-Many of the issues in the master branch have been fixed in release-1.1-dev branch. Although not tested to be fully stable, release-1.1-dev is stable enough to try out and report any futher issues before it gets merged into master.
+For local package management, the CMake option `ARDUINO_BOARD_MANAGER_URL` can be used to specify the board manager URL of the platform. The necessary platform is locally installed in the build directory, and utilized. An example is shown below.
 
-Below are the list of known issues in the master branch.
-
-**1. Uploaded application does not work on some boards**
-
-Caused by build linking issue that does not link some object files related to platform variant sources contained in the core library. Affects any Arduino platform that has variant source files in addition to the variant header files.
-
-Resolution: Please try with release-1.1-dev branch or otherwise, temporary fixes are available in the branches [fix/variant_link_alt1](https://github.com/a9183756-gh/Arduino-CMake-Toolchain/tree/fix/variant_link_alt1) and [fix/variant_link_alt2](https://github.com/a9183756-gh/Arduino-CMake-Toolchain/tree/fix/variant_link_alt2).
-
-**Compromises when using the fix/variant_link_alt1 fix**: (1) CMake version must be above 3.13, (2) Application needs to link with core directly, like in [Examples/01_hello_world](https://github.com/a9183756-gh/Arduino-CMake-Toolchain/tree/master/Examples/01_hello_world), and not like in [Examples/03_portable_app](https://github.com/a9183756-gh/Arduino-CMake-Toolchain/tree/master/Examples/03_portable_app) which links transitively.
-
-**Compromises when using the fix/variant_link_alt2 fix**: Need to retrigger cmake and do rebuild, after the first successful build, if transitive linking of core is used in the project. May get "source some_file.o not found error" in CMake during the first invocation of CMake that can be ignored.
-
-**2. Build/link issue on some 3rd party platforms**
-
-Resolution: Please try with release-1.1-dev branch.
-
-**3. Some libraries are not detected by *target_link_arduino_libraries***
-
-Currently, *target_link_arduino_libraries* takes only include names (i.e. the name of the header file without extension). If the include name does not match with the library name (as mentioned in *library.properties* of the library), the detection of the library fails \(Refer issue [#19](https://github.com/a9183756-gh/Arduino-CMake-Toolchain/issues/19)\).
-
-Workaround: Rename the library folder to the include name and use include name in *target_link_arduino_libraries*.
-
-Resolution: Please try with release-1.1-dev branch.
-
-**4. Calculating firmware size fails with message about invalid regex**
-
-CMake regular expressions don't support some features that are used by some boards (namely arduino UNO R4) for calculating the firmware size.
-
-Workaround: Install [ripgrep](https://github.com/BurntSushi/ripgrep). The toolchain will use `rg` command instead of native CMake regular expressions if available.
+```sh
+cmake -D CMAKE_TOOLCHAIN_FILE=/path/to/Arduino-toolchain.cmake -D ARDUINO_BOARD_MANAGER_URL=https://dl.espressif.com/dl/package_esp32_index.json -D ARDUINO_BOARD_OPTIONS_FILE=/path/to/MyESP32BoardOptions.cmake <CMAKE_SOURCE_DIR>
+```
 
 ## How it works
 
